@@ -1,0 +1,41 @@
+# Build directories and outputs
+build/
+bin/
+lib/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+*.app
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# IDE and Editor
+.vscode/
+.cache/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# Executables
+Rasterizer
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
