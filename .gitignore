@@ -1,16 +1,37 @@
-# Build directories and outputs
-build/
-bin/
-lib/
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
 *.o
-*.a
+# Note: NOT ignoring *.obj because Wavefront .obj 3D model files are used in assignments
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
 *.so
 *.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
 *.exe
 *.out
 *.app
+Rasterizer
+BezierCurve
+RayTracing
+ropesim
 
-# CMake
+# CMake generated files
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
@@ -18,18 +39,31 @@ Makefile
 cmake_install.cmake
 install_manifest.txt
 compile_commands.json
+CTestTestfile.cmake
+_deps/
+cmake-build-*/
 
-# IDE and Editor
-.vscode/
-.cache/
-.idea/
+# Build directories (applies to all subdirectories)
+build/
+bin/
+lib/
+out/
+
+# Editor / IDE
+# Ignore VS Code settings except for essential config files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+
+# vim / other editors
 *.swp
 *.swo
+.idea/
+.cache/
 *.tmp
 *.bak
-
-# Executables
-Rasterizer
 
 # OS specific
 .DS_Store
@@ -39,3 +73,8 @@ Rasterizer
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Assignment 8 - exclude glfw docs/tests/examples (large, not needed for code)
+assignment8/CGL/deps/glfw/docs/
+assignment8/CGL/deps/glfw/tests/
+assignment8/CGL/deps/glfw/examples/
