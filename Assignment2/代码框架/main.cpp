@@ -81,7 +81,7 @@ int main(int argc, const char** argv)
                     {3, 4, 5}
             };
 
-    std::vector<Eigen::Vector3f> cols
+    std::vector<Eigen::Vector3f> cols//内部没有颜色插值，只是单纯的进行了深度插值
             {
                     {217.0, 238.0, 185.0},
                     {217.0, 238.0, 185.0},
