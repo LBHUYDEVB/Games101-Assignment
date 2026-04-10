@@ -66,7 +66,7 @@ static bool insideTriangle(int x, int y, const Vector3f* _v)//判断像素是否
     float dpx1 = px - x1; float dpy1 = py - y1;
     float dpx2 = px - x2; float dpy2 = py - y2;
 
-    // 5. 分别计算二维叉乘的 Z 分量结果 (也就是 X1*Y2 - Y1*X2)
+    // 5. 分别计算二维叉乘结果
     float cross0 = dx0 * dpy0 - dy0 * dpx0;
     float cross1 = dx1 * dpy1 - dy1 * dpx1;
     float cross2 = dx2 * dpy2 - dy2 * dpx2;
@@ -81,7 +81,7 @@ static bool insideTriangle(int x, int y, const Vector3f* _v)//判断像素是否
 }
 
 static std::tuple<float, float, float> computeBarycentric2D(float x, float y, const Vector3f* v)
-{
+{//计算符合二维的重心坐标
     float c1 = (x*(v[1].y() - v[2].y()) + (v[2].x() - v[1].x())*y + v[1].x()*v[2].y() - v[2].x()*v[1].y()) / (v[0].x()*(v[1].y() - v[2].y()) + (v[2].x() - v[1].x())*v[0].y() + v[1].x()*v[2].y() - v[2].x()*v[1].y());
     float c2 = (x*(v[2].y() - v[0].y()) + (v[0].x() - v[2].x())*y + v[2].x()*v[0].y() - v[0].x()*v[2].y()) / (v[1].x()*(v[2].y() - v[0].y()) + (v[0].x() - v[2].x())*v[1].y() + v[2].x()*v[0].y() - v[0].x()*v[2].y());
     float c3 = (x*(v[0].y() - v[1].y()) + (v[1].x() - v[0].x())*y + v[0].x()*v[1].y() - v[1].x()*v[0].y()) / (v[2].x()*(v[0].y() - v[1].y()) + (v[1].x() - v[0].x())*v[2].y() + v[0].x()*v[1].y() - v[1].x()*v[0].y());
@@ -156,12 +156,14 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
         for(int y = y_min; y <= y_max; ++y){
             
             // 3. 判断当前查房的这个像素点，到底在不在这个三角形内部？
-            if(insideTriangle(x, y, t.v)){
+            if(insideTriangle(x, y, t.v)){//这里的t.v就是表示这个像素目前被包含在那个三角形，后续的插值需要调用这个三角形的坐标
                 
-                // 4. 如果在里面，那就用老师留下来的秘法：计算它的真实深度(插值Z)
-                auto[alpha, beta, gamma] = computeBarycentric2D(x, y, t.v);
+                // 4. 如果在里面，就是用透视矫正插值，过程十分的复杂 详情请加Lecture8 的笔记
+                auto[alpha, beta, gamma] = computeBarycentric2D(x, y, t.v);//先计算出二维的重心坐标，后续进行透视矫正（顺带省性能，假如是二维的数值就直接用二维的重心坐标就行了）
                 float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
-                float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                
+                float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();//注意这里，，他是基于真实的z值进行的计算
+                
                 z_interpolated *= w_reciprocal;
 
                 // 5. 到账房去找这个像素格的历史账本记录，算出它的 1D 索引
