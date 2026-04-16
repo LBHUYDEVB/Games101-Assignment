@@ -259,28 +259,53 @@ static Eigen::Vector2f interpolate(float alpha, float beta, float gamma, const E
 //Screen space rasterization
 void rst::rasterizer::rasterize_triangle(const Triangle& t, const std::array<Eigen::Vector3f, 3>& view_pos) 
 {
-    // TODO: From your HW3, get the triangle rasterization code.
-    // TODO: Inside your rasterization loop:
-    //    * v[i].w() is the vertex view space depth value z.
-    //    * Z is interpolated view space depth for the current pixel
-    //    * zp is depth between zNear and zFar, used for z-buffer
+    auto v = t.v;
+    
+    // 1. 求出包围盒边界
+    int max_x = std::ceil(std::max({v[0].x(), v[1].x(), v[2].x()}));
+    int min_x = std::floor(std::min({v[0].x(), v[1].x(), v[2].x()}));
+    int max_y = std::ceil(std::max({v[0].y(), v[1].y(), v[2].y()}));
+    int min_y = std::floor(std::min({v[0].y(), v[1].y(), v[2].y()}));
 
-    // float Z = 1.0 / (alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
-    // float zp = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
-    // zp *= Z;
+    for (int x = min_x; x <= max_x; x++) {
+        for (int y = min_y; y <= max_y; y++) {
+            // 对每个像素坐标 +0.5 (即像素中心点) 进行检测
+            if (insideTriangle(x + 0.5f, y + 0.5f, v)) {
+                
+                // 2. 计算像素中心的简单重心坐标
+                auto [alpha, beta, gamma] = computeBarycentric2D(x + 0.5f, y + 0.5f, v);
+                
+                // 3. 计算做过透视除法的真实深度 Z
+                float Z = 1.0 / (alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+                float zp = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                zp *= Z;
 
-    // TODO: Interpolate the attributes:
-    // auto interpolated_color
-    // auto interpolated_normal
-    // auto interpolated_texcoords
-    // auto interpolated_shadingcoords
+                // 4. Z-Buffer 判断
+                if (zp < depth_buf[get_index(x, y)]) {
+                    depth_buf[get_index(x, y)] = zp;
+                    
+                    // 5. 🔥【重点修改】计算“经过透视真正的重心坐标权重”
+                    float c_alpha = (alpha / v[0].w()) * Z;
+                    float c_beta  = (beta / v[1].w())  * Z;
+                    float c_gamma = (gamma / v[2].w()) * Z;
 
-    // Use: fragment_shader_payload payload( interpolated_color, interpolated_normal.normalized(), interpolated_texcoords, texture ? &*texture : nullptr);
-    // Use: payload.view_pos = interpolated_shadingcoords;
-    // Use: Instead of passing the triangle's color directly to the frame buffer, pass the color to the shaders first to get the final color;
-    // Use: auto pixel_color = fragment_shader(payload);
-
- 
+                    // 6. 用真的透视矫正权重 (c_alpha等) 来插值！
+                    auto interpolated_color = interpolate(c_alpha, c_beta, c_gamma, t.color[0], t.color[1], t.color[2], 1.0f);
+                    auto interpolated_normal = interpolate(c_alpha, c_beta, c_gamma, t.normal[0], t.normal[1], t.normal[2], 1.0f);
+                    auto interpolated_texcoords = interpolate(c_alpha, c_beta, c_gamma, t.tex_coords[0], t.tex_coords[1], t.tex_coords[2], 1.0f);
+                    auto interpolated_shadingcoords = interpolate(c_alpha, c_beta, c_gamma, view_pos[0], view_pos[1], view_pos[2], 1.0f);
+                    
+                    // 7. 发送 Payload 给 Fragment Shader 算颜色
+                    fragment_shader_payload payload(interpolated_color, interpolated_normal.normalized(), interpolated_texcoords, texture ? &*texture : nullptr);
+                    payload.view_pos = interpolated_shadingcoords;
+                    auto pixel_color = fragment_shader(payload);
+                    
+                    // 8. 真正把颜色打在屏幕上
+                    set_pixel(Eigen::Vector2i(x, y), pixel_color);
+                }
+            }
+        }
+    }
 }
 
 void rst::rasterizer::set_model(const Eigen::Matrix4f& m)
