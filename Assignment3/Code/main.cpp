@@ -48,7 +48,7 @@ Eigen::Matrix4f get_projection_matrix(float eye_fov, float aspect_ratio,
 }
 
 Eigen::Vector3f vertex_shader(const vertex_shader_payload &payload) {
-  return payload.position;
+  return payload.position;//虚职 没有任何调用
 }
 
 Eigen::Vector3f normal_fragment_shader(const fragment_shader_payload &payload) {

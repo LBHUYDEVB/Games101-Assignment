@@ -19,7 +19,8 @@ rst::rasterizer::load_positions(const std::vector<Eigen::Vector3f> &positions) {
 rst::ind_buf_id
 rst::rasterizer::load_indices(const std::vector<Eigen::Vector3i> &indices) {
   auto id = get_next_id();
-  ind_buf.emplace(id, indices);
+  ind_buf.emplace(
+      id, indices); // 这里并没有调用这些，而是使用的别的trianglelist渲染流程
 
   return {id};
 }
@@ -281,8 +282,17 @@ void rst::rasterizer::rasterize_triangle(
           // 打赢了第一步：把账本上的记录抹掉，改成自己的新深度（更小的宣誓主权）
           depth_buf[idx] = z;
 
-          // 打赢了第二步：拿到当前这个三角形对象的颜色涂料，给屏幕上色！
-          set_pixel(Eigen::Vector3f(x, y, 1.0f), interpolated_color);
+          fragment_shader_payload payload(
+              interpolated_color, interpolated_normal.normalized(), // 归一化
+              interpolated_texcoords,
+              texture
+                  ? &*texture
+                  : nullptr // 如果有贴图，就传贴图地址；没有贴图，就传空指针，对的
+                            // 这玩意和hpp里面设置贴图指针为空指针的内容重复了
+          );
+          payload.view_pos = interpolated_shadingcoords;
+          auto pixel_color = fragment_shader(payload);
+          set_pixel(Eigen::Vector3f(x, y, 1.0f), pixel_color);
         }
       }
     }

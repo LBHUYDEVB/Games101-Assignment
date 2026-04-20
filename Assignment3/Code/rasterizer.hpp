@@ -80,6 +80,7 @@ private:
 
   // VERTEX SHADER -> MVP -> Clipping -> /.W -> VIEWPORT -> DRAWLINE/DRAWTRI ->
   // FRAGSHADER
+  //
 
 private:
   Eigen::Matrix4f model;
