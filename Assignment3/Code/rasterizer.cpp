@@ -282,7 +282,7 @@ void rst::rasterizer::rasterize_triangle(
           // 打赢了第一步：把账本上的记录抹掉，改成自己的新深度（更小的宣誓主权）
           depth_buf[idx] = z;
 
-          fragment_shader_payload payload(
+          fragment_shader_payload payload(//这里就是在把着色器所需要的数据传入到一个位置，到时候应用到shader里
               interpolated_color, interpolated_normal.normalized(), // 归一化
               interpolated_texcoords,
               texture
@@ -291,7 +291,7 @@ void rst::rasterizer::rasterize_triangle(
                             // 这玩意和hpp里面设置贴图指针为空指针的内容重复了
           );
           payload.view_pos = interpolated_shadingcoords;
-          auto pixel_color = fragment_shader(payload);
+          auto pixel_color = fragment_shader(payload);//读取在main函数中存入的shader
           set_pixel(Eigen::Vector3f(x, y, 1.0f), pixel_color);
         }
       }
@@ -362,7 +362,7 @@ void rst::rasterizer::set_vertex_shader(
   vertex_shader = vert_shader;
 }
 
-void rst::rasterizer::set_fragment_shader(
+void rst::rasterizer::set_fragment_shader(//在这里载入shader
     std::function<Eigen::Vector3f(fragment_shader_payload)> frag_shader) {
   fragment_shader = frag_shader;
 }
