@@ -106,8 +106,30 @@ Eigen::Vector3f texture_fragment_shader(
 
     Eigen::Vector3f result_color = {0, 0, 0};
 
-    result_color = ka.cwiseProduct(amb_light_intensity);
+    result_color += ka.cwiseProduct(amb_light_intensity);
     for (auto &light : lights) {
+        // 先来算入射光
+        Eigen::Vector3f light_dir = light.position - point;
+        // 计算观察方向（注意观察方向和视点方向不是一个东西）
+        Eigen::Vector3f view_dir = eye_pos - point;
+        // 再算半程向量
+        Eigen ::Vector3f half_vector =
+            (light_dir.normalized() + view_dir.normalized())
+                .normalized(); // 注意这里是加法，并且应该先归一化再加
+        // 计算到达当前位置的光强度
+        float r_square = light_dir.squaredNorm(); // 这个squareNorm的意思是向量长度的平方
+        // float r_square = (light_dir.x()*light_dir.x() +
+        // light_dir.y()*light_dir.y() + light_dir.z()*light_dir.z()); std::sqrt
+        // 上面这个算法是tmd开平方 我是傻逼
+
+        // 计算漫反射光
+        Eigen::Vector3f Ld = kd.cwiseProduct(light.intensity / r_square) * std::max(0.0f, normal.dot(light_dir.normalized()));
+
+        // 计算高光
+        auto Ls = ks.cwiseProduct(light.intensity / r_square) * std::pow(std::max(0.0f, half_vector.dot(normal.normalized())), p); // 注意这里不能直接用*
+                                                                                                                                   // 应该用cwiseProduct，他的意思才是向量间的逐元素相乘
+
+        result_color += Ld + Ls;
         // TODO: For each light source in the code, calculate what the *ambient*,
         // *diffuse*, and *specular* compone
         // nts are. Then, accumulate that result on
@@ -139,6 +161,7 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload &payload) {
     Eigen::Vector3f normal = payload.normal;
 
     Eigen::Vector3f result_color = {0, 0, 0};
+    result_color += ka.cwiseProduct(amb_light_intensity);
     for (auto &light : lights) { // 这里要连着计算整个phone模型所需要的变量，而且这里是对于每个光源来讲
         //  // 所以说环境光应该放在循环外，因为他只加一次（不对 不应该只加一次）
 
@@ -158,14 +181,12 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload &payload) {
 
         // 计算漫反射光
         Eigen::Vector3f Ld = kd.cwiseProduct(light.intensity / r_square) * std::max(0.0f, normal.dot(light_dir.normalized()));
-        // 计算环境光
-        Eigen::Vector3f La = ka.cwiseProduct(amb_light_intensity);
 
         // 计算高光
         auto Ls = ks.cwiseProduct(light.intensity / r_square) * std::pow(std::max(0.0f, half_vector.dot(normal.normalized())), p); // 注意这里不能直接用*
                                                                                                                                    // 应该用cwiseProduct，他的意思才是向量间的逐元素相乘
 
-        result_color += Ld + Ls + La;
+        result_color += Ld + Ls;
         // TODO: For each light source in the code, calculate what the *ambient*,
         // *diffuse*, and *specular* components are. Then, accumulate that result on
         // the *result_color* object.
