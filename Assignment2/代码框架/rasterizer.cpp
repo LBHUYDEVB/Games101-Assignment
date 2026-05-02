@@ -150,6 +150,8 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
     int x_max = std::max(v[0].x(), std::max(v[1].x(), v[2].x()));
     int y_min = std::min(v[0].y(), std::min(v[1].y(), v[2].y()));
     int y_max = std::max(v[0].y(), std::max(v[1].y(), v[2].y()));
+    //妈的注意这里，咱们现在只是对三角形做包围盒检测，但是后面的包围盒中需要更精细化
+    //直接用float转int会损失精度（血的教训QAQ）
 
     // 2. 遍历包围盒里圈住的每一个像素方格 (注意循环条件应该是 <=，要不然边界可能画不全)
     for(int x = x_min; x <= x_max; ++x){
