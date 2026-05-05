@@ -215,7 +215,8 @@ displacement_fragment_shader(const fragment_shader_payload &payload) {
     Eigen::Vector3f point = payload.view_pos;
     Eigen::Vector3f normal = payload.normal;
 
-    float kh = 0.2, kn = 0.1;
+    float kh = 0.2, // 控制高度图本身的的高度幅度，主要影响法线扰动的强弱；值越大，表面看起来越崎岖。
+        kn = 0.1;   // 控制最终置换结果的高度缩放倍率，同时也会间接影响凹凸的视觉强度
 
     // TODO: Implement displacement mapping here
     // Let n = normal = (x, y, z)
@@ -227,16 +228,67 @@ displacement_fragment_shader(const fragment_shader_payload &payload) {
     // Vector ln = (-dU, -dV, 1)
     // Position p = p + kn * n * h(u,v)
     // Normal n = normalize(TBN * ln)
+    if (payload.texture) {                       // 如果当前 shader payload 带有高度图纹理，就执行置换贴图逻辑
+        Eigen::Vector3f n = normal.normalized(); // 把插值得到的原始法线归一化，作为后续 TBN 坐标系里的 n 轴
+        float x = n.x();                         // 取出归一化法线的 x 分量，对应公式中的 n.x
+        float y = n.y();                         // 取出归一化法线的 y 分量，对应公式中的 n.y
+        float z = n.z();                         // 取出归一化法线的 z 分量，对应公式中的 n.z
+        float xz_length = sqrt(x * x + z * z);   // 计算 sqrt(x*x+z*z)，这是构造 tangent 时的分母
 
-    Eigen::Vector3f result_color = {0, 0, 0};
+        Eigen::Vector3f t;                                                        // 声明切线向量 t，也就是 tangent，表示纹理 u 方向在观察空间里的方向
+        if (xz_length > 1e-6f) {                                                  // 如果分母不是接近 0，就按作业公式正常构造切线
+            t = Eigen::Vector3f(x * y / xz_length, xz_length, z * y / xz_length); // 根据 n 构造切线 t
+        } else {                                                                  // 如果 x 和 z 都接近 0，公式会除以很小的数，所以走备用分支
+            t = Eigen::Vector3f(1.0f, 0.0f, 0.0f);                                // 选 x 轴作为备用切线，保证数值稳定
+        } // 切线 t 构造完成
+        Eigen::Vector3f b = n.cross(t); // 用 n 叉乘 t 得到副切线 b，也就是 bitangent
 
-    for (auto &light : lights) {
-        // TODO: For each light source in the code, calculate what the *ambient*,
-        // *diffuse*, and *specular* components are. Then, accumulate that result on
-        // the *result_color* object.
-    }
+        Eigen::Matrix3f TBN;        // 声明 TBN 矩阵，用来把切线空间的法线变换回观察空间
+        TBN << t.x(), b.x(), n.x(), // 第一行是 t、b、n 三个基向量的 x 分量
+            t.y(), b.y(), n.y(),    // 第二行是 t、b、n 三个基向量的 y 分量
+            t.z(), b.z(), n.z();    // 第三行是 t、b、n 三个基向量的 z 分量
 
-    return result_color * 255.f;
+        float u = payload.tex_coords.x();                               // 取当前片元的纹理坐标 u
+        float v = payload.tex_coords.y();                               // 取当前片元的纹理坐标 v
+        float w = payload.texture->width;                               // 取高度图宽度，用来计算 u 方向一个 texel 的步长 1/w
+        float h = payload.texture->height;                              // 取高度图高度，用来计算 v 方向一个 texel 的步长 1/h
+        float current_height = payload.texture->getColor(u, v).norm();  // 当前 uv 位置的高度值，这里用颜色向量长度近似高度
+        float dU = kh * kn *                                            // 计算 u 方向的高度变化，并乘上高度缩放系数 kh 和法线缩放系数 kn
+                   (payload.texture->getColor(u + 1.0f / w, v).norm() - // 采样 u 方向右侧一个 texel 的高度 h(u+1/w,v)
+                    current_height);                                    // 减去当前高度 h(u,v)，得到 u 方向高度差
+        float dV = kh * kn *                                            // 计算 v 方向的高度变化，并乘上高度缩放系数 kh 和法线缩放系数 kn
+                   (payload.texture->getColor(u, v + 1.0f / h).norm() - // 采样 v 方向上方一个 texel 的高度 h(u,v+1/h)
+                    current_height);                                    // 减去当前高度 h(u,v)，得到 v 方向高度差
+
+        Eigen::Vector3f ln(-dU, -dV, 1.0f);      // 在切线空间里构造扰动后的局部法线 ln=(-dU,-dV,1)
+        point = point + kn * n * current_height; // 置换贴图比 bump 多这一步：沿原始法线方向移动当前 shading point
+        // 新位置 = 原位置 + 法线方向 * 高度值 * 缩放系数
+
+        normal = (TBN * ln).normalized(); // 把局部扰动法线通过 TBN 转回观察空间，并归一化
+    } // 置换贴图的高度采样、位置移动、法线扰动结束
+
+    Eigen::Vector3f result_color = {0, 0, 0};             // 初始化最终颜色累加器
+    result_color += ka.cwiseProduct(amb_light_intensity); // 加一次环境光，环境光不应该随光源数量重复
+
+    for (auto &light : lights) {                            // 遍历每一个点光源，分别计算漫反射和高光
+        Eigen::Vector3f light_dir = light.position - point; // 从当前点指向光源的向量
+        Eigen::Vector3f view_dir = eye_pos - point;         // 从当前点指向相机的观察向量
+        Eigen::Vector3f half_vector =
+            (light_dir.normalized() + view_dir.normalized()).normalized(); // Blinn-Phong 的半程向量 h=normalize(l+v)
+        float r_square = light_dir.squaredNorm();                          // 光源到当前点距离的平方，用于做距离衰减
+
+        Eigen::Vector3f Ld =
+            kd.cwiseProduct(light.intensity / r_square) *                    // 漫反射项：物体颜色 kd 逐通道乘以衰减后的光强
+            std::max(0.0f, normal.normalized().dot(light_dir.normalized())); // 再乘 max(0,n·l)，背光面不贡献漫反射
+
+        Eigen::Vector3f Ls =
+            ks.cwiseProduct(light.intensity / r_square) *                      // 高光项：高光系数 ks 逐通道乘以衰减后的光强
+            std::pow(std::max(0.0f, half_vector.dot(normal.normalized())), p); // 再乘 max(0,n·h)^p，p 越大高光越尖
+
+        result_color += Ld + Ls; // 把当前光源的漫反射和高光贡献累加到最终颜色
+    } // 所有光源处理完毕
+
+    return result_color * 255.f; // 内部按 0~1 颜色计算，返回时放大到 0~255
 }
 
 Eigen::Vector3f bump_fragment_shader(const fragment_shader_payload &payload) {
@@ -270,10 +322,54 @@ Eigen::Vector3f bump_fragment_shader(const fragment_shader_payload &payload) {
     // Vector ln = (-dU, -dV, 1)
     // Normal n = normalize(TBN * ln)
 
-    Eigen::Vector3f result_color = {0, 0, 0};
-    result_color = normal;
+    // 这里来说一下逻辑，先构建一个由法线+切线+副切线（法线和切线的叉乘（妈的这不是构建空间坐标系常用到的叉乘了，我怎么忘了草））
+    // 组成的TBN空间（tangent/bitangent/normal），然后利用高度图 sample 采样出当前uv的
+    //
+    if (payload.texture) {                       // 如果当前 shader payload 带有高度图纹理，就执行 bump mapping
+        Eigen::Vector3f n = normal.normalized(); // 把原始插值法线归一化，作为 TBN 坐标系里的 n 轴
+        float x = n.x();                         // 取出法线 x 分量
+        float y = n.y();                         // 取出法线 y 分量
+        float z = n.z();                         // 取出法线 z 分量
+        float xz_length = sqrt(x * x + z * z);   // 计算 sqrt(x*x+z*z)，用于构造切线向量
 
-    return result_color * 255.f;
+        Eigen::Vector3f t;                                                        // 声明切线向量 t，也就是 tangent
+        if (xz_length > 1e-6f) {                                                  // 分母足够大时，使用作业给出的切线公式
+            t = Eigen::Vector3f(x * y / xz_length, xz_length, z * y / xz_length); // 根据原始法线构造切线 t
+        } else {                                                                  // 分母接近 0 时，公式会不稳定
+            t = Eigen::Vector3f(1.0f, 0.0f, 0.0f);                                // 使用 x 轴方向作为备用切线
+        } // 切线 t 构造完成
+        Eigen::Vector3f b = n.cross(t); // 用 n 叉乘 t 得到副切线 b
+
+        Eigen::Matrix3f TBN;        // 声明 TBN 矩阵，用于把切线空间法线转回观察空间
+        TBN << t.x(), b.x(), n.x(), // 第一行：t、b、n 三个基向量的 x 分量
+            t.y(), b.y(), n.y(),    // 第二行：t、b、n 三个基向量的 y 分量
+            t.z(), b.z(), n.z();    // 第三行：t、b、n 三个基向量的 z 分量
+                                    // 这里讲一下这个TBN矩阵，他实际上是把法线，切线，副切线这三个局部空间的基向量用世界空间的坐标表示了
+        // 就有点类似于世界模型矩阵，在模型内部各个基向量肯定是001之类的，但是用世界空间的角度去表示就成每个模型在世界空间的坐标
+        // 这样的模型矩阵可以把每个模型内部的坐标转换到世界空间坐标
+        // 同理，TBN也可以把切线空间法线转换到世界空间坐标
+        float u = payload.tex_coords.x();  // 当前片元的纹理坐标 u
+        float v = payload.tex_coords.y();  // 当前片元的纹理坐标 v
+        float w = payload.texture->width;  // 高度图宽度，用于计算 u 方向一个 texel 的步长
+        float h = payload.texture->height; // 高度图高度，用于计算 v 方向一个 texel 的步长
+        // 之前的getcolor函数的逻辑是把uv空间和贴图的像素一一对应
+        // 这里的计算步长，是为了计算高度图的变化率（前后像素高度差对比，具体为什么要通过这种方法算法线请见lecture8笔记）
+        float current_height = payload.texture->getColor(u, v).norm();  // 当前 uv 位置的高度值
+        float dU = kh * kn *                                            // 计算 u 方向高度变化，并乘上 kh、kn 控制凹凸强度
+                   (payload.texture->getColor(u + 1.0f / w, v).norm() - // 采样右侧相邻 texel 的高度
+                    current_height);                                    // 用右侧高度减当前高度，得到 u 方向高度差
+        float dV = kh * kn *                                            // 计算 v 方向高度变化，并乘上 kh、kn 控制凹凸强度
+                   (payload.texture->getColor(u, v + 1.0f / h).norm() - // 采样上方相邻 texel 的高度
+                    current_height);                                    // 用上方高度减当前高度，得到 v 方向高度差
+
+        Eigen::Vector3f ln(-dU, -dV, 1.0f); // 在切线空间里构造扰动后的局部法线 ln=(-dU,-dV,1)，这里是直接套的公式，推导过程自己看笔记
+        normal = (TBN * ln).normalized();   // 把局部扰动法线乘 TBN 转回观察空间，并归一化
+    } // bump mapping 结束；它只改 normal，不移动 point
+
+    Eigen::Vector3f result_color = {0, 0, 0}; // 初始化返回颜色
+    result_color = normal;                    // bump shader 直接把扰动后的法线当颜色显示
+
+    return result_color * 255.f; // 把颜色从 0~1 范围放大到 0~255 输出
 }
 
 int main(int argc, const char **argv) {
